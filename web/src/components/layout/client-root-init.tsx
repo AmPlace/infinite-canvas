@@ -10,7 +10,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const handledConfigParams = useRef(false);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const config = useConfigStore((state) => state.config);
-    const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const setConfigDialogOpen = useConfigStore((state) => state.setConfigDialogOpen);
 
     usePromptSourceScheduler();
 
@@ -43,9 +43,9 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         );
         if (baseUrl) updateConfig("baseUrl", baseUrl);
         if (apiKey) updateConfig("apiKey", apiKey);
-        openConfigDialog(false);
+        setConfigDialogOpen(false);
         message.success("已导入本地直连配置");
-    }, [config.channels, message, openConfigDialog, updateConfig]);
+    }, [config.channels, message, setConfigDialogOpen, updateConfig]);
 
     return <>{children}</>;
 }
