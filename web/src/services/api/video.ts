@@ -10,11 +10,12 @@ import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
+type VideoResponse = { id?: string; task_id?: string; status?: string; progress?: number | string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
 type SeedanceTask = {
     id: string;
-    status?: "queued" | "running" | "succeeded" | "completed" | "failed" | "cancelled" | "expired";
+    status?: "queued" | "pending" | "processing" | "running" | "in_progress" | "succeeded" | "completed" | "failed" | "cancelled" | "expired";
+    progress?: number | string;
     error?: { code?: string; message?: string } | null;
     content?: { video_url?: string; url?: string; last_frame_url?: string } | null;
     url?: string;
@@ -26,7 +27,10 @@ type RequestOptions = { signal?: AbortSignal };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
-export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
+export type VideoTaskStatus = "queued" | "pending" | "processing" | "running" | "in_progress" | "completed" | "succeeded" | "failed" | "cancelled";
+export type VideoGenerationPendingState = { status: "pending"; taskStatus?: VideoTaskStatus; progress?: number };
+export type VideoGenerationTaskState = VideoGenerationPendingState | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
+export type VideoGenerationRequestOptions = RequestOptions & { onTaskCreated?: (task: VideoGenerationTask) => void; onProgress?: (state: VideoGenerationPendingState) => void };
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
@@ -42,14 +46,16 @@ function aiHeaders(config: AiConfig, contentType?: string) {
     };
 }
 
-export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
+export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: VideoGenerationRequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
+    options?.onTaskCreated?.(task);
     const delayMs = task.provider === "seedance" ? 5000 : 2500;
     for (let attempt = 0; attempt < 120; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw new Error(state.error);
+        options?.onProgress?.(state);
         if (attempt === 119) throw new Error(`${task.provider === "seedance" ? "Seedance " : ""}视频生成超时，请稍后重试`);
         await delay(delayMs, options?.signal);
     }
@@ -144,8 +150,9 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     files.forEach((file) => body.append("input_reference[]", file));
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
-        if (!created.id) throw new Error("视频接口没有返回任务 ID");
-        return { id: created.id, provider: "openai", model };
+        const taskId = readVideoTaskId(created);
+        if (!taskId) throw new Error("视频接口没有返回任务 ID");
+        return { id: taskId, provider: "openai", model };
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务创建失败"));
     }
@@ -153,16 +160,18 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
-        const url = videoResultUrl(video);
-        if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
-        if (video.status === "completed") {
-            const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
-            await assertVideoBlob(content.data);
-            return { status: "completed", result: { blob: content.data } };
+        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(openAIVideoTaskUrl(config, task.id), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const taskStatus = normalizeVideoTaskStatus(video.status);
+        const fallbackUrl = videoResultUrl(video);
+        if (taskStatus === "completed" || taskStatus === "succeeded") {
+            return { status: "completed", result: await fetchOpenAIVideoContent(config, task.id, fallbackUrl, options) };
         }
-        if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error?.message) || "视频生成失败" };
-        return { status: "pending" };
+        if (taskStatus === "failed" || taskStatus === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error) || `视频生成${taskStatus === "cancelled" ? "已取消" : "失败"}` };
+        if (taskStatus) return { status: "pending", taskStatus, progress: normalizeVideoProgress(video.progress) };
+        // Some compatible services omit the terminal status but only expose a URL
+        // after completion. Still prefer the authenticated task content endpoint.
+        if (fallbackUrl) return { status: "completed", result: await fetchOpenAIVideoContent(config, task.id, fallbackUrl, options) };
+        return { status: "pending", progress: normalizeVideoProgress(video.progress) };
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务查询失败"));
     }
@@ -202,7 +211,7 @@ async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, opt
         if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
         if (state.status === "succeeded" || state.status === "completed") return { status: "failed", error: "Seedance 任务成功但没有返回视频 URL" };
         if (state.status === "failed" || state.status === "cancelled" || state.status === "expired") return { status: "failed", error: readApiErrorMessage(state.error?.message) || `Seedance 视频生成${state.status === "expired" ? "超时" : "失败"}` };
-        return { status: "pending" };
+        return { status: "pending", taskStatus: normalizeVideoTaskStatus(state.status), progress: normalizeVideoProgress(state.progress) };
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 任务查询失败"));
     }
@@ -333,6 +342,66 @@ function unwrapEnvelope<T>(payload: ApiEnvelope<T>, emptyMessage: string): T {
 
 function videoResultUrl(payload: VideoResponse | SeedanceTask) {
     return [payload.video_url, payload.result_url, payload.url, payload.content?.video_url, payload.content?.url].find((url) => typeof url === "string" && (isPublicMediaUrl(url) || /\.mp4(\?|#|$)/i.test(url)));
+}
+
+function readVideoTaskId(payload: VideoResponse) {
+    return [payload.id, payload.task_id].find((value) => typeof value === "string" && value.trim())?.trim() || "";
+}
+
+function openAIVideoTaskUrl(config: AiConfig, taskId: string, content = false) {
+    return aiApiUrl(config, `/videos/${encodeURIComponent(taskId)}${content ? "/content" : ""}`);
+}
+
+async function fetchOpenAIVideoContent(config: AiConfig, taskId: string, fallbackUrl: string | undefined, options?: RequestOptions): Promise<VideoGenerationResult> {
+    const response = await fetch(openAIVideoTaskUrl(config, taskId, true), {
+        headers: aiHeaders(config),
+        signal: options?.signal,
+    });
+    if (!response.ok) {
+        if (fallbackUrl && !isXaiVideoUrl(fallbackUrl) && (response.status === 404 || response.status === 405 || response.status === 501)) return videoResultFromUrl(fallbackUrl, options);
+        const detail = await response.text();
+        throw new Error(readApiErrorMessage(detail) || statusMessage(response.status, "视频内容获取失败"));
+    }
+    const blob = await response.blob();
+    await assertVideoBlob(blob);
+    return { blob, mimeType: blob.type || response.headers.get("content-type") || "video/mp4" };
+}
+
+function normalizeVideoTaskStatus(value: unknown): VideoTaskStatus | undefined {
+    if (typeof value !== "string") return undefined;
+    const status = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (status === "queued" || status === "pending" || status === "processing" || status === "running" || status === "in_progress" || status === "completed" || status === "succeeded" || status === "failed" || status === "cancelled") return status;
+    return undefined;
+}
+
+function normalizeVideoProgress(value: unknown) {
+    const normalized = typeof value === "string" ? value.trim() : "";
+    const progress =
+        typeof value === "number"
+            ? value
+            : /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*%?$/.test(normalized)
+              ? Number(normalized.replace(/%$/, "").trim())
+              : Number.NaN;
+    return Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : undefined;
+}
+
+function isXaiVideoUrl(value: string) {
+    try {
+        const hostname = new URL(value).hostname.toLowerCase();
+        return hostname === "x.ai" || hostname.endsWith(".x.ai");
+    } catch {
+        return false;
+    }
+}
+
+export function videoTaskStatusLabel(status?: string) {
+    if (status === "queued") return "排队中";
+    if (status === "pending") return "处理中";
+    if (status === "processing" || status === "running" || status === "in_progress") return "生成中";
+    if (status === "completed" || status === "succeeded") return "已完成";
+    if (status === "cancelled") return "已取消";
+    if (status === "failed") return "生成失败";
+    return "正在创建任务";
 }
 
 function readApiErrorMessage(value: unknown): string {

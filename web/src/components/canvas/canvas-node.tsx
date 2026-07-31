@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { ChevronRight, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { formatBytes } from "@/lib/image-utils";
+import { formatBytes, formatDuration } from "@/lib/image-utils";
+import { videoTaskStatusLabel } from "@/services/api/video";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -434,7 +435,7 @@ export const CanvasNode = React.memo(function CanvasNode({
 function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
-    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
+    if (props.node.metadata?.status === "loading") return <LoadingContent node={props.node} theme={props.theme} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
     const Renderer = nodeContentRenderers[props.node.type as CanvasNodeType];
@@ -475,11 +476,36 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
     );
 }
 
-function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
+function LoadingContent({ node, theme }: Pick<NodeContentRendererProps, "node" | "theme">) {
+    const startedAt = node.metadata?.generationStartedAt;
+    const progress = node.metadata?.generationProgress;
+    const isVideoGeneration = node.type === CanvasNodeType.Video;
+    const [now, setNow] = useState(Date.now());
+
+    useEffect(() => {
+        if (!startedAt) return;
+        setNow(Date.now());
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [startedAt]);
+
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
             <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
-            <span className="text-[10px] tracking-[0.2em]">生成中</span>
+            <span className="text-[10px] tracking-[0.2em]">{isVideoGeneration ? videoTaskStatusLabel(node.metadata?.generationStatus) : "生成中"}</span>
+            {startedAt ? (
+                <div className="w-3/5 max-w-44 text-center text-[10px]" style={{ color: theme.node.muted }}>
+                    <div className="flex items-center justify-between gap-3">
+                        <span>{formatDuration(Math.max(0, now - startedAt))}</span>
+                        {progress !== undefined ? <span>{Math.round(progress)}%</span> : null}
+                    </div>
+                    {progress !== undefined ? (
+                        <div className="mt-1.5 h-1 overflow-hidden rounded-full" style={{ background: theme.node.stroke }}>
+                            <div className="h-full rounded-full transition-[width]" style={{ background: theme.node.activeStroke, width: `${progress}%` }} />
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -571,7 +597,7 @@ function ImageNodeContent(props: NodeContentRendererProps) {
     if (!props.node.metadata?.content && props.isBatchRoot) {
         const content =
             props.node.metadata?.status === "loading" ? (
-                <LoadingContent theme={props.theme} />
+                <LoadingContent node={props.node} theme={props.theme} />
             ) : props.node.metadata?.status === "error" ? (
                 <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />
             ) : (

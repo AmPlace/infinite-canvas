@@ -62,6 +62,9 @@ export type CanvasNodeMetadata = {
     mimeType?: string;
     bytes?: number;
     durationMs?: number;
+    generationStatus?: "queued" | "pending" | "processing" | "running" | "in_progress" | "completed" | "succeeded" | "failed" | "cancelled";
+    generationProgress?: number;
+    generationStartedAt?: number;
     groupId?: string;
     interactive?: boolean; // 插件节点「交互 ⇄ 移动」开关状态(见 CanvasNodeDefinition.interactionToggle)
 };

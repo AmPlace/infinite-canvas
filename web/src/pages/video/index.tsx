@@ -14,7 +14,7 @@ import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/lib/seedance-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
-import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
+import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, videoTaskStatusLabel, type VideoGenerationTask, type VideoTaskStatus } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -36,6 +36,8 @@ type GeneratedVideo = {
 type GenerationResult = {
     id: string;
     status: "pending" | "success" | "failed";
+    taskStatus?: VideoTaskStatus;
+    progress?: number;
     video?: GeneratedVideo;
     error?: string;
 };
@@ -206,10 +208,11 @@ export default function VideoPage() {
         setPreviewLog(null);
         setResults([{ id: nanoid(), status: "pending" }]);
         const batchStartedAt = performance.now();
-        setStartedAt(batchStartedAt);
+        setStartedAt(0);
         try {
             const task = await createVideoGenerationTask(snapshot.config, snapshot.text, snapshot.references, snapshot.videoReferences, snapshot.audioReferences);
             const log = buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: 0, status: "生成中", task });
+            setStartedAt(performance.now());
             await saveLog(log, false);
             void pollGenerationLog(log, snapshot.config, agentTaskId);
         } catch (error) {
@@ -344,7 +347,8 @@ export default function VideoPage() {
         if (!log.task || activeLogIdsRef.current.has(log.id)) return;
         activeLogIdsRef.current.add(log.id);
         setRunning(true);
-        setStartedAt((value) => value || performance.now());
+        const recordedStartedAt = Number.isFinite(log.createdAt) && log.createdAt > 0 && log.createdAt <= Date.now() ? log.createdAt : Date.now();
+        setStartedAt((value) => value || performance.now() - (Date.now() - recordedStartedAt));
         setResults((value) => (value.length ? value : [{ id: log.id, status: "pending" }]));
         const taskConfig = buildVideoConfig({ ...effectiveConfig, ...log.config }, log.task.model || log.model);
         try {
@@ -369,6 +373,7 @@ export default function VideoPage() {
                     return;
                 }
                 if (state.status === "failed") throw new Error(state.error);
+                setResults([{ id: log.id, status: "pending", taskStatus: state.taskStatus || "pending", progress: state.progress }]);
                 if (attempt === 119) throw new Error("视频生成超时，请稍后重试");
                 await delay(log.task.provider === "seedance" ? 5000 : 2500);
             }
@@ -566,11 +571,11 @@ export default function VideoPage() {
                     <div className="thin-scrollbar rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800 lg:min-h-0 lg:overflow-y-auto lg:p-5">
                         <div className="mb-4 flex items-center justify-between gap-3">
                             <h2 className="text-xl font-semibold">生成结果</h2>
-                            {running ? <Tag className="m-0 px-2 py-1">等待 {formatDuration(elapsedMs)}</Tag> : null}
+                            {running && startedAt ? <Tag className="m-0 px-2 py-1">等待 {formatDuration(elapsedMs)}</Tag> : null}
                         </div>
                         {results.length ? (
                             <div className="grid gap-4">
-                                {results.map((result) => (result.status === "success" && result.video ? <ResultVideoCard key={result.id} video={result.video} onDownload={downloadVideo} onSaveAsset={saveResultToAssets} /> : result.status === "failed" ? <FailedVideoCard key={result.id} error={result.error || "生成失败"} onRetry={retryResult} /> : <PendingVideoCard key={result.id} />))}
+                                {results.map((result) => (result.status === "success" && result.video ? <ResultVideoCard key={result.id} video={result.video} onDownload={downloadVideo} onSaveAsset={saveResultToAssets} /> : result.status === "failed" ? <FailedVideoCard key={result.id} error={result.error || "生成失败"} onRetry={retryResult} /> : <PendingVideoCard key={result.id} taskStatus={result.taskStatus} progress={result.progress} elapsedMs={elapsedMs} showElapsed={Boolean(startedAt)} />))}
                             </div>
                         ) : (
                             <div className="flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-dashed border-stone-300 text-center dark:border-stone-700 lg:min-h-[560px]">
@@ -650,12 +655,22 @@ function ResultVideoCard({ video, onDownload, onSaveAsset }: { video: GeneratedV
     );
 }
 
-function PendingVideoCard() {
+function PendingVideoCard({ taskStatus, progress, elapsedMs, showElapsed }: { taskStatus?: VideoTaskStatus; progress?: number; elapsedMs: number; showElapsed: boolean }) {
+    const hasProgress = progress !== undefined;
     return (
         <div className="relative aspect-video overflow-hidden rounded-lg border border-dashed border-stone-300 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-stone-500 dark:text-stone-400">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-sm text-stone-500 dark:text-stone-400">
                 <LoaderCircle className="size-6 animate-spin" />
-                <span>生成中</span>
+                <span>{videoTaskStatusLabel(taskStatus)}</span>
+                {showElapsed ? <span className="text-xs">已等待 {formatDuration(elapsedMs)}</span> : null}
+                {hasProgress ? (
+                    <div className="mt-1 w-full max-w-72">
+                        <div className="mb-1.5 text-right text-xs">{Math.round(progress)}%</div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700">
+                            <div className="h-full rounded-full bg-stone-700 transition-[width] dark:bg-stone-200" style={{ width: `${progress}%` }} />
+                        </div>
+                    </div>
+                ) : null}
             </div>
         </div>
     );
