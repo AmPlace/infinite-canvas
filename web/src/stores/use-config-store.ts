@@ -123,6 +123,7 @@ type ConfigStore = {
     isConfigOpen: boolean;
     configTab: ConfigTabKey;
     shouldPromptContinue: boolean;
+    setConfig: (config: AiConfig) => void;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
@@ -192,6 +193,7 @@ export const useConfigStore = create<ConfigStore>()(
             isConfigOpen: false,
             configTab: "channels",
             shouldPromptContinue: false,
+            setConfig: (config) => set({ config }),
             updateConfig: (key, value) =>
                 set((state) => ({
                     config: {
@@ -272,6 +274,15 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
     return result;
 }
 
+/** Replace a channel's fetched model list while preserving existing user capability/script overrides. */
+export function syncChannelModelNames(channel: ModelChannel, names: string[]): ModelChannel {
+    const currentModels = new Map(channel.models.map((model) => [model.name, model]));
+    return {
+        ...channel,
+        models: normalizeChannelModels(names.map((name) => currentModels.get(name) || name)),
+    };
+}
+
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {
     const apiFormat = normalizeApiFormat(channel?.apiFormat);
     return {
@@ -311,6 +322,32 @@ export function modelOptionLabel(config: AiConfig, value: string) {
 
 export function modelOptionsFromChannels(channels: ModelChannel[]) {
     return uniqueModelOptions(channels.flatMap((channel) => channel.models.map((model) => encodeChannelModel(channel.id, model.name))));
+}
+
+/** Apply channels and keep each current default when available, otherwise select the first model of that capability. */
+export function withModelChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
+    const next: AiConfig = {
+        ...config,
+        channelMode: "local",
+        channels,
+        models: modelOptionsFromChannels(channels),
+        baseUrl: channels[0]?.baseUrl || config.baseUrl,
+        apiKey: channels[0]?.apiKey || config.apiKey,
+        apiFormat: channels[0]?.apiFormat || config.apiFormat,
+    };
+    return {
+        ...next,
+        imageModel: pickDefaultModel(next, "image", config.imageModel),
+        videoModel: pickDefaultModel(next, "video", config.videoModel),
+        textModel: pickDefaultModel(next, "text", config.textModel),
+        audioModel: pickDefaultModel(next, "audio", config.audioModel),
+    };
+}
+
+function pickDefaultModel(config: AiConfig, capability: ModelCapability, current: string) {
+    const options = selectableModelsByCapability(config, capability);
+    const normalized = normalizeModelOptionValue(current, config.channels);
+    return options.includes(normalized) ? normalized : options[0] || "";
 }
 
 export function normalizeModelOptionValue(value: string | undefined, channels: ModelChannel[]) {
