@@ -9,10 +9,14 @@ import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { ManagedSiteHeader } from "@/components/layout/managed-site-header";
+import { managedNavigationTools } from "@/constant/navigation-tools";
+import { useManagedSiteMode } from "@/stores/use-managed-site-store";
 
 export function AppTopNav() {
     const { pathname } = useLocation();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
+    const managed = useManagedSiteMode();
     const autoConnectRef = useRef(false);
     const agentToken = useAgentStore((state) => state.token);
     const agentEnabled = useAgentStore((state) => state.enabled);
@@ -20,19 +24,19 @@ export function AppTopNav() {
     const connectAgent = useAgentStore((state) => state.connectAgent);
     const togglePanel = useAgentStore((state) => state.togglePanel);
     const panelOpen = useAgentStore((state) => state.panelOpen);
-    const hideHeader = /^\/canvas\/[^/]+/.test(pathname);
+    const hideHeader = !managed && /^\/canvas\/[^/]+/.test(pathname);
     const slug = pathname.split("/").filter(Boolean)[0];
     const activeToolSlug = navigationTools.some((tool) => tool.slug === slug) ? (slug as NavigationToolSlug) : undefined;
 
     useEffect(() => {
-        if (autoConnectRef.current || agentEnabled || agentConnected || !agentToken.trim()) return;
+        if (managed || autoConnectRef.current || agentEnabled || agentConnected || !agentToken.trim()) return;
         autoConnectRef.current = true;
         connectAgent({ silent: true });
-    }, [agentConnected, agentEnabled, agentToken, connectAgent]);
+    }, [agentConnected, agentEnabled, agentToken, connectAgent, managed]);
 
     return (
         <>
-            {!hideHeader ? (
+            {managed ? <ManagedSiteHeader activeToolSlug={activeToolSlug} onOpenMobileNav={() => setMobileNavOpen(true)} /> : !hideHeader ? (
                 <header className="sticky top-0 z-20 h-14 shrink-0 border-b border-stone-200 bg-background/90 backdrop-blur-xl dark:border-stone-800">
                     <div className="mx-auto flex h-full max-w-7xl items-stretch justify-between gap-5 px-6">
                         <div className="flex min-w-0 items-center">
@@ -90,7 +94,7 @@ export function AppTopNav() {
                 </header>
             ) : null}
 
-            <MobileNavDrawer open={mobileNavOpen} activeToolSlug={activeToolSlug} onClose={() => setMobileNavOpen(false)} />
+            <MobileNavDrawer open={mobileNavOpen} activeToolSlug={activeToolSlug} tools={managed ? managedNavigationTools : navigationTools} onClose={() => setMobileNavOpen(false)} />
             <AppConfigModal />
         </>
     );

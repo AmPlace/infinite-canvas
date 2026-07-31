@@ -1,6 +1,8 @@
 import axios from "axios";
 import { nanoid } from "nanoid";
 
+import { notifyManagedGenerationSettled, toManagedUserMessage } from "@/lib/managed-site";
+import { isManagedSiteActive } from "@/stores/use-managed-site-store";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -47,6 +49,17 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 }
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: VideoGenerationRequestOptions): Promise<VideoGenerationResult> {
+    try {
+        const result = await requestVideoGenerationInternal(config, prompt, references, videoReferences, audioReferences, options);
+        notifyManagedGenerationSettled(true);
+        return result;
+    } catch (error) {
+        notifyManagedGenerationSettled(false, error);
+        throw error;
+    }
+}
+
+async function requestVideoGenerationInternal(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: VideoGenerationRequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
     options?.onTaskCreated?.(task);
     const delayMs = task.provider === "seedance" ? 5000 : 2500;
@@ -166,7 +179,10 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (taskStatus === "completed" || taskStatus === "succeeded") {
             return { status: "completed", result: await fetchOpenAIVideoContent(config, task.id, fallbackUrl, options) };
         }
-        if (taskStatus === "failed" || taskStatus === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error) || `视频生成${taskStatus === "cancelled" ? "已取消" : "失败"}` };
+        if (taskStatus === "failed" || taskStatus === "cancelled") {
+            const message = readApiErrorMessage(video.error) || `视频生成${taskStatus === "cancelled" ? "已取消" : "失败"}`;
+            return { status: "failed", error: isManagedSiteActive() ? toManagedUserMessage(message) : message };
+        }
         if (taskStatus) return { status: "pending", taskStatus, progress: normalizeVideoProgress(video.progress) };
         // Some compatible services omit the terminal status but only expose a URL
         // after completion. Still prefer the authenticated task content endpoint.
@@ -210,7 +226,10 @@ async function pollSeedanceTask(config: AiConfig, task: VideoGenerationTask, opt
         const url = videoResultUrl(state);
         if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
         if (state.status === "succeeded" || state.status === "completed") return { status: "failed", error: "Seedance 任务成功但没有返回视频 URL" };
-        if (state.status === "failed" || state.status === "cancelled" || state.status === "expired") return { status: "failed", error: readApiErrorMessage(state.error?.message) || `Seedance 视频生成${state.status === "expired" ? "超时" : "失败"}` };
+        if (state.status === "failed" || state.status === "cancelled" || state.status === "expired") {
+            const message = readApiErrorMessage(state.error?.message) || `Seedance 视频生成${state.status === "expired" ? "超时" : "失败"}`;
+            return { status: "failed", error: isManagedSiteActive() ? toManagedUserMessage(message) : message };
+        }
         return { status: "pending", taskStatus: normalizeVideoTaskStatus(state.status), progress: normalizeVideoProgress(state.progress) };
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 任务查询失败"));
@@ -434,6 +453,11 @@ function readApiErrorMessage(value: unknown): string {
 }
 
 function readAxiosError(error: unknown, fallback: string) {
+    const message = readAxiosErrorRaw(error, fallback);
+    return isManagedSiteActive() ? toManagedUserMessage(message) : message;
+}
+
+function readAxiosErrorRaw(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
     if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; message?: string; code?: number | string }>(error)) {
         const responseData = error.response?.data;
@@ -444,9 +468,8 @@ function readAxiosError(error: unknown, fallback: string) {
 }
 
 function statusMessage(status: number | undefined, fallback: string) {
-    if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
-    if (status === 429) return "请求被限流或额度不足，请稍后重试";
-    return status ? `${fallback}（${status}）` : fallback;
+    const message = status === 401 || status === 403 ? "鉴权失败，请检查 API Key、套餐权限或模型权限" : status === 402 ? "余额不足，请充值后再试" : status === 429 ? "请求过于频繁，请稍后重试" : status ? `${fallback}（${status}）` : fallback;
+    return isManagedSiteActive() ? toManagedUserMessage(message) : message;
 }
 
 async function assertVideoBlob(blob: Blob) {

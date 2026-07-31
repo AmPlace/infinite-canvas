@@ -15,8 +15,10 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceRefe
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, videoTaskStatusLabel, type VideoGenerationTask, type VideoTaskStatus } from "@/services/api/video";
+import { notifyManagedGenerationSettled } from "@/lib/managed-site";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
+import { useManagedSiteMode } from "@/stores/use-managed-site-store";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
@@ -72,6 +74,7 @@ const logStore = localforage.createInstance({ name: "infinite-canvas", storeName
 
 export default function VideoPage() {
     const { message } = App.useApp();
+    const managed = useManagedSiteMode();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dragDepthRef = useRef(0);
     const activeLogIdsRef = useRef<Set<string>>(new Set());
@@ -220,6 +223,7 @@ export default function VideoPage() {
             setResults([{ id: nanoid(), status: "failed", error: errorMessage }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
             await saveLog(buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: performance.now() - batchStartedAt, status: "失败", error: errorMessage }));
+            notifyManagedGenerationSettled(false, errorMessage);
             message.error(errorMessage);
             setRunning(false);
         }
@@ -254,7 +258,7 @@ export default function VideoPage() {
             return null;
         }
         if (!isAiConfigReady(effectiveConfig, model)) {
-            message.warning("请先完成配置");
+            message.warning(managed ? "当前授权暂无可用视频模型，请返回阿柴 AI 控制台检查账号权限" : "请先完成配置");
             openConfigDialog(true);
             return null;
         }
@@ -369,6 +373,7 @@ export default function VideoPage() {
                     setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
                     if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
                     await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined });
+                    notifyManagedGenerationSettled(true);
                     message.success("视频已生成");
                     return;
                 }
@@ -382,6 +387,7 @@ export default function VideoPage() {
             setResults([{ id: log.id, status: "failed", error: errorMessage }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
             await saveLog({ ...log, status: "失败", durationMs: Date.now() - log.createdAt, error: errorMessage });
+            notifyManagedGenerationSettled(false, errorMessage);
             message.error(errorMessage);
         } finally {
             activeLogIdsRef.current.delete(log.id);

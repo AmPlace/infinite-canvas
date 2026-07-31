@@ -7,6 +7,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { DOCS_URL } from "@/constant/env";
+import { useManagedSiteMode } from "@/stores/use-managed-site-store";
 
 export function CanvasTopBar({
     title,
@@ -54,6 +55,7 @@ export function CanvasTopBar({
     onToggleAgent: () => void;
 }) {
     const colorTheme = useThemeStore((state) => state.theme);
+    const managed = useManagedSiteMode();
     const theme = canvasThemes[colorTheme];
     const titleRef = useRef<HTMLDivElement>(null);
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -89,7 +91,7 @@ export function CanvasTopBar({
                         menu={{
                             items: [
                                 { key: "home", icon: <Home className="size-4" />, label: "主页", onClick: onHome },
-                                { key: "docs", icon: <BookOpen className="size-4" />, label: "文档", onClick: () => window.open(DOCS_URL, "_blank", "noopener,noreferrer") },
+                                ...(managed ? [] : [{ key: "docs", icon: <BookOpen className="size-4" />, label: "文档", onClick: () => window.open(DOCS_URL, "_blank", "noopener,noreferrer") }]),
                                 { key: "projects", icon: <Images className="size-4" />, label: "我的画布", onClick: onProjects },
                                 { type: "divider" },
                                 { key: "new", icon: <Plus className="size-4" />, label: "新建画布", onClick: onCreateProject },
@@ -133,13 +135,13 @@ export function CanvasTopBar({
                             </button>
                         )}
                     </div>
-                    <CompactAgentStatus status={compactAgentStatus} onClick={onToggleAgent} />
+                    {managed ? null : <CompactAgentStatus status={compactAgentStatus} onClick={onToggleAgent} />}
                 </div>
 
                 <div className="pointer-events-auto flex items-center gap-1.5">
-                    <UserStatusActions variant="canvas" onOpenShortcuts={() => setShortcutsOpen(true)} onOpenPlugins={onOpenPlugins} />
-                    <span className="h-6 w-px" style={{ background: theme.toolbar.border }} />
-                    <Button
+                    <UserStatusActions showConfig={!managed} showTheme={!managed} variant="canvas" onOpenShortcuts={() => setShortcutsOpen(true)} onOpenPlugins={managed ? undefined : onOpenPlugins} />
+                    {managed ? null : <span className="h-6 w-px" style={{ background: theme.toolbar.border }} />}
+                    {managed ? null : <Button
                         type="text"
                         className="!h-10 !rounded-xl !px-3 !font-medium"
                         style={{ background: agentOpen ? theme.toolbar.activeBg : theme.toolbar.panel, color: theme.node.text, boxShadow: "0 10px 30px rgba(28,25,23,.10)" }}
@@ -147,7 +149,7 @@ export function CanvasTopBar({
                         onClick={onToggleAgent}
                     >
                         Agent
-                    </Button>
+                    </Button>}
                 </div>
             </div>
             <Modal title="快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>

@@ -4,6 +4,12 @@ declare const __APP_VERSION__: string;
 declare const __APP_RELEASES__: import("@/lib/release").ReleaseInfo[];
 
 interface ImportMetaEnv {
+    readonly VITE_SITE_MODE?: "managed" | "standalone";
+    readonly VITE_MANAGED_SITE_NAME?: string;
+    readonly VITE_MANAGED_LOGO_URL?: string;
+    readonly VITE_MANAGED_HOME_URL?: string;
+    readonly VITE_MANAGED_CONSOLE_URL?: string;
+    readonly VITE_MANAGED_RECHARGE_URL?: string;
     // 逗号分隔的本地开发插件 URL,每次启动重新拉取(不缓存、不落库)
     readonly VITE_DEV_PLUGINS?: string;
     // 统计分析（可选，构建期注入）：每家一个独立变量，填了谁就启用谁，可同时启用多家

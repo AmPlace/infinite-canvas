@@ -18,6 +18,7 @@ import { requestEdit, requestGeneration } from "@/services/api/image";
 import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
+import { useManagedSiteMode } from "@/stores/use-managed-site-store";
 import type { ReferenceImage } from "@/types/image";
 
 type GeneratedImage = {
@@ -68,6 +69,7 @@ const logStore = localforage.createInstance({ name: "infinite-canvas", storeName
 
 export default function ImagePage() {
     const { message } = App.useApp();
+    const managed = useManagedSiteMode();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dragDepthRef = useRef(0);
     const config = useConfigStore((state) => state.config);
@@ -154,7 +156,7 @@ export default function ImagePage() {
             return;
         }
         if (!isAiConfigReady(effectiveConfig, model)) {
-            message.warning("请先完成配置");
+            message.warning(managed ? "当前授权暂无可用生图模型，请返回阿柴 AI 控制台检查账号权限" : "请先完成配置");
             openConfigDialog(true);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", error: "生图配置不完整" });
             return;
@@ -314,7 +316,7 @@ export default function ImagePage() {
             return null;
         }
         if (!isAiConfigReady(effectiveConfig, model)) {
-            message.warning("请先完成配置");
+            message.warning(managed ? "当前授权暂无可用生图模型，请返回阿柴 AI 控制台检查账号权限" : "请先完成配置");
             openConfigDialog(true);
             return null;
         }

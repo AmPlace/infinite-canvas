@@ -3,6 +3,8 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
+import { isManagedSiteActive, useManagedSiteMode, useManagedSiteStore } from "@/stores/use-managed-site-store";
+
 export type ApiCallFormat = "openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
@@ -167,6 +169,7 @@ export function resolveModelForCapability(config: AiConfig, currentModel: string
     const fallbackModel = capability === "image" ? defaultConfig.imageModel : capability === "video" ? defaultConfig.videoModel : capability === "audio" ? defaultConfig.audioModel : defaultConfig.textModel;
     if (currentModel && modelMatchesCapability(config, currentModel, capability)) return currentModel;
     if (defaultModel && modelMatchesCapability(config, defaultModel, capability)) return defaultModel;
+    if (isManagedSiteActive()) return "";
     return fallbackModel;
 }
 
@@ -181,6 +184,7 @@ export function resolveModelScript(config: AiConfig, value: string) {
 }
 
 function isAiConfigReady(config: AiConfig, model: string) {
+    if (isManagedSiteActive() && !findChannelModel(config, model)) return false;
     const channel = resolveModelChannel(config, model);
     return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
 }
@@ -209,7 +213,13 @@ export const useConfigStore = create<ConfigStore>()(
                     },
                 })),
             isAiConfigReady: (config, model) => isAiConfigReady(config, model),
-            openConfigDialog: (shouldPromptContinue = false, configTab = "channels") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
+            openConfigDialog: (shouldPromptContinue = false, configTab = "channels") => {
+                if (isManagedSiteActive() && configTab !== "preferences") {
+                    set({ isConfigOpen: false, shouldPromptContinue: false });
+                    return;
+                }
+                set({ isConfigOpen: true, shouldPromptContinue, configTab });
+            },
             setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
             clearPromptContinue: () => set({ shouldPromptContinue: false }),
         }),
@@ -256,7 +266,14 @@ export const useConfigStore = create<ConfigStore>()(
 
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
-    return useMemo(() => ({ ...config, channelMode: "local" as const }), [config]);
+    const managed = useManagedSiteMode();
+    const authorization = useManagedSiteStore((state) => state.authorization);
+    return useMemo(() => {
+        if (!managed) return { ...config, channelMode: "local" as const };
+        const channel = authorization.granted && authorization.valid ? config.channels.find((item) => item.id === authorization.channelId) : undefined;
+        if (!channel) return { ...config, channelMode: "local" as const, baseUrl: "", apiKey: "", channels: [], models: [], imageModel: "", videoModel: "", textModel: "", audioModel: "" };
+        return withModelChannels(config, [{ ...channel, models: channel.models.filter((model) => model.capability === "image" || model.capability === "video") }]);
+    }, [authorization.channelId, authorization.granted, authorization.valid, config, managed]);
 }
 
 /** Normalize a mixed list of raw model names or model objects into deduped ChannelModel entries. */
@@ -316,6 +333,7 @@ export function modelOptionName(value: string) {
 export function modelOptionLabel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     if (!decoded) return value;
+    if (isManagedSiteActive()) return decoded.model;
     const channel = config.channels.find((item) => item.id === decoded.channelId);
     return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
 }
@@ -370,6 +388,7 @@ export function resolveModelChannel(config: AiConfig, value: string) {
 }
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
+    if (isManagedSiteActive() && !findChannelModel(config, value)) throw new Error("当前授权不包含所选模型，请从阿柴 AI 控制台检查模型权限");
     const channel = resolveModelChannel(config, value);
     return {
         ...config,

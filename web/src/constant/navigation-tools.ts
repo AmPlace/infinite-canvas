@@ -33,4 +33,6 @@ export const navigationTools = [
     },
 ] as const;
 
+export const managedNavigationTools = navigationTools.filter((tool) => tool.slug === "canvas" || tool.slug === "image" || tool.slug === "video");
+
 export type NavigationToolSlug = (typeof navigationTools)[number]["slug"];

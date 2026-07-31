@@ -3,6 +3,9 @@ import axios from "axios";
 import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
 import { nanoid } from "nanoid";
+
+import { notifyManagedGenerationSettled, toManagedUserMessage } from "@/lib/managed-site";
+import { isManagedSiteActive } from "@/stores/use-managed-site-store";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
@@ -299,6 +302,11 @@ function readApiErrorMessage(value: unknown): string {
 }
 
 function readAxiosError(error: unknown, fallback: string) {
+    const message = readAxiosErrorRaw(error, fallback);
+    return isManagedSiteActive() ? toManagedUserMessage(message) : message;
+}
+
+function readAxiosErrorRaw(error: unknown, fallback: string) {
     if (axios.isCancel(error)) return "请求已取消";
     if (axios.isAxiosError(error)) {
         const responseData = error.response?.data;
@@ -317,7 +325,8 @@ function readAxiosError(error: unknown, fallback: string) {
 
 function readStatusError(status: number | undefined, fallback: string) {
     if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
-    if (status === 429) return "请求被限流或额度不足，请稍后重试";
+    if (status === 402) return "余额不足，请充值后再试";
+    if (status === 429) return "请求过于频繁，请稍后重试";
     if (status === 404) return "接口地址不存在（404），请检查 Base URL 和模型选择";
     if (status === 502) return "网关错误（502），接口服务暂时不可用，请稍后重试";
     if (status === 503) return "服务繁忙（503），请稍后重试";
@@ -711,6 +720,17 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
 }
 
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
+    try {
+        const result = await requestGenerationInternal(config, prompt, options);
+        notifyManagedGenerationSettled(true);
+        return result;
+    } catch (error) {
+        notifyManagedGenerationSettled(false, error);
+        throw error;
+    }
+}
+
+async function requestGenerationInternal(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const script = resolveModelScript(config, config.model || config.imageModel);
@@ -769,6 +789,17 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
 }
 
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
+    try {
+        const result = await requestEditInternal(config, prompt, references, mask, options);
+        notifyManagedGenerationSettled(true);
+        return result;
+    } catch (error) {
+        notifyManagedGenerationSettled(false, error);
+        throw error;
+    }
+}
+
+async function requestEditInternal(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
