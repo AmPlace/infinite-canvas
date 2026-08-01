@@ -354,7 +354,7 @@ export default function VideoPage() {
         const recordedStartedAt = Number.isFinite(log.createdAt) && log.createdAt > 0 && log.createdAt <= Date.now() ? log.createdAt : Date.now();
         setStartedAt((value) => value || performance.now() - (Date.now() - recordedStartedAt));
         setResults((value) => (value.length ? value : [{ id: log.id, status: "pending" }]));
-        const taskConfig = buildVideoConfig({ ...effectiveConfig, ...log.config }, log.task.model || log.model);
+        const taskConfig = buildVideoConfig({ ...effectiveConfig, ...log.config }, log.task.model || log.model, log.task.provider);
         try {
             for (let attempt = 0; attempt < 120; attempt += 1) {
                 const state = await pollVideoGenerationTask(configOverride || taskConfig, log.task);
@@ -630,7 +630,7 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
                 <ModelPicker config={config} value={model} onChange={(value) => updateConfig("videoModel", value)} capability="video" fullWidth onMissingConfig={() => openConfigDialog(false)} />
             </label>
             <div className="col-span-2">
-                <VideoSettingsPanel config={config} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-4" />
+                <VideoSettingsPanel config={{ ...config, model }} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-4" />
             </div>
         </>
     );
@@ -925,8 +925,8 @@ function buildLog({ prompt, model, config, references, videoReferences, audioRef
     };
 }
 
-function buildVideoConfig(config: AiConfig, model: string): AiConfig {
-    const seedance = isSeedanceVideoConfig({ ...config, model });
+function buildVideoConfig(config: AiConfig, model: string, provider?: VideoGenerationTask["provider"]): AiConfig {
+    const seedance = provider ? provider === "seedance" : isSeedanceVideoConfig({ ...config, model });
     return {
         ...config,
         model,

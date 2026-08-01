@@ -7,7 +7,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, decodeChannelModel, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -95,9 +95,24 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
         const result = pluginVideoResults.get(task.id);
         return result ? { status: "completed", result } : { status: "failed", error: "插件视频任务已失效，请重新生成" };
     }
-    const requestConfig = resolveModelRequestConfig(config, task.model);
+    const requestConfig = resolveExistingVideoTaskConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
     return task.provider === "seedance" ? pollSeedanceTask(requestConfig, task, options) : pollOpenAIVideoTask(requestConfig, task, options);
+}
+
+function resolveExistingVideoTaskConfig(config: AiConfig, model: string): AiConfig {
+    const decoded = decodeChannelModel(model);
+    const channel = decoded
+        ? config.channels.find((item) => item.id === decoded.channelId)
+        : config.channels.find((item) => item.models.some((entry) => entry.name === model)) || (config.channels.length === 1 ? config.channels[0] : undefined);
+    if (!channel) throw new Error("视频任务所属渠道已不存在，无法继续查询任务");
+    return {
+        ...config,
+        model: modelOptionName(model),
+        baseUrl: channel.baseUrl,
+        apiKey: channel.apiKey,
+        apiFormat: channel.apiFormat,
+    };
 }
 
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {

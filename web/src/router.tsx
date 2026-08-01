@@ -10,6 +10,7 @@ import HomePage from "@/pages/home";
 import ImagePage from "@/pages/image";
 import NotFound from "@/pages/not-found";
 import PromptsPage from "@/pages/prompts";
+import RouteErrorPage from "@/pages/route-error";
 import VideoPage from "@/pages/video";
 
 export const router = createBrowserRouter([
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
                 <Outlet />
             </UserLayout>
         ),
+        errorElement: <RouteErrorPage />,
         children: [
             { path: "/", element: <HomePage /> },
             { path: "/image", element: <ImagePage /> },

@@ -356,12 +356,18 @@ export function withModelChannels(config: AiConfig, channels: ModelChannel[]): A
         apiKey: channels[0]?.apiKey || config.apiKey,
         apiFormat: channels[0]?.apiFormat || config.apiFormat,
     };
+    const imageModel = pickDefaultModel(next, "image", config.imageModel);
+    const videoModel = pickDefaultModel(next, "video", config.videoModel);
+    const textModel = pickDefaultModel(next, "text", config.textModel);
+    const audioModel = pickDefaultModel(next, "audio", config.audioModel);
+    const currentModel = normalizeModelOptionValue(config.model, channels);
     return {
         ...next,
-        imageModel: pickDefaultModel(next, "image", config.imageModel),
-        videoModel: pickDefaultModel(next, "video", config.videoModel),
-        textModel: pickDefaultModel(next, "text", config.textModel),
-        audioModel: pickDefaultModel(next, "audio", config.audioModel),
+        model: next.models.includes(currentModel) ? currentModel : imageModel || videoModel || textModel || audioModel,
+        imageModel,
+        videoModel,
+        textModel,
+        audioModel,
     };
 }
 
