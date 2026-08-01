@@ -196,7 +196,7 @@ export function toManagedUserMessage(message: string) {
 }
 
 export function isManagedCreativePath(pathname: string) {
-    return pathname === "/image" || pathname === "/video" || pathname === "/canvas" || /^\/canvas\/[^/]+$/.test(pathname);
+    return pathname === "/image" || pathname === "/video" || pathname === "/prompts" || pathname === "/assets" || pathname === "/canvas" || /^\/canvas\/[^/]+$/.test(pathname);
 }
 
 export function notifyManagedGenerationSettled(success: boolean, error?: unknown) {

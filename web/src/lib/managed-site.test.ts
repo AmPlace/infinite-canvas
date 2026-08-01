@@ -5,6 +5,7 @@ import {
     buildManagedStatusUrl,
     classifyManagedFailure,
     deriveManagedSiteLinks,
+    isManagedCreativePath,
     managedFailureMessage,
     normalizeManagedCredentials,
     parseManagedBalance,
@@ -33,6 +34,16 @@ test("production deployment always uses managed mode", () => {
     const localExit = readManagedSiteImport(new URLSearchParams({ managed: "0" }), "", defaults);
     assert.equal(localExit.explicitMode, true);
     assert.equal(localExit.managed, false);
+});
+
+test("managed mode keeps creative pages while blocking API configuration", () => {
+    assert.equal(isManagedCreativePath("/image"), true);
+    assert.equal(isManagedCreativePath("/video"), true);
+    assert.equal(isManagedCreativePath("/prompts"), true);
+    assert.equal(isManagedCreativePath("/assets"), true);
+    assert.equal(isManagedCreativePath("/canvas"), true);
+    assert.equal(isManagedCreativePath("/canvas/project-test"), true);
+    assert.equal(isManagedCreativePath("/config"), false);
 });
 
 test("managed import keeps safe site links and rejects script protocols", () => {

@@ -18,10 +18,13 @@ export function ManagedSiteGate({ children }: { children: ReactNode }) {
     if (!managed) return <>{children}</>;
 
     const channel = config.channels.find((item) => item.id === authorization.channelId);
-    const hasCreativeModel = Boolean(channel?.models.some((model) => model.capability === "image" || model.capability === "video"));
+    const hasImage = Boolean(channel?.models.some((model) => model.capability === "image"));
+    const hasVideo = Boolean(channel?.models.some((model) => model.capability === "video"));
+    const hasCreativeModel = Boolean(channel?.models.length);
     const ready = Boolean(authorization.granted && authorization.valid && channel?.baseUrl.trim() && channel.apiKey.trim() && hasCreativeModel);
-    if (ready && pathname === "/") return <Navigate to="/image" replace />;
-    if (ready && !isManagedCreativePath(pathname)) return <Navigate to="/image" replace />;
+    const defaultPath = hasImage ? "/image" : hasVideo ? "/video" : "/canvas";
+    if (ready && pathname === "/") return <Navigate to={defaultPath} replace />;
+    if (ready && !isManagedCreativePath(pathname)) return <Navigate to={defaultPath} replace />;
     if (ready) return <>{children}</>;
 
     const pending = connectionStatus === "connecting" || connectionStatus === "syncing";
@@ -33,7 +36,7 @@ export function ManagedSiteGate({ children }: { children: ReactNode }) {
         : authorization.granted && !authorization.valid
           ? `登录或授权已失效，请从${profile.siteName}控制台重新进入`
           : missingModels
-            ? "当前 Key 无生图或视频模型"
+            ? "当前 Key 无可用创作模型"
             : authorization.granted
               ? connectionMessage || "授权暂不可用"
               : `请从${profile.siteName}控制台进入创作台`;

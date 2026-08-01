@@ -214,11 +214,8 @@ export const useConfigStore = create<ConfigStore>()(
                 })),
             isAiConfigReady: (config, model) => isAiConfigReady(config, model),
             openConfigDialog: (shouldPromptContinue = false, configTab = "channels") => {
-                if (isManagedSiteActive() && configTab !== "preferences") {
-                    set({ isConfigOpen: false, shouldPromptContinue: false });
-                    return;
-                }
-                set({ isConfigOpen: true, shouldPromptContinue, configTab });
+                const safeTab = isManagedSiteActive() && configTab === "channels" ? "preferences" : configTab;
+                set({ isConfigOpen: true, shouldPromptContinue, configTab: safeTab });
             },
             setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
             clearPromptContinue: () => set({ shouldPromptContinue: false }),
@@ -268,12 +265,18 @@ export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
     const managed = useManagedSiteMode();
     const authorization = useManagedSiteStore((state) => state.authorization);
-    return useMemo(() => {
-        if (!managed) return { ...config, channelMode: "local" as const };
-        const channel = authorization.granted && authorization.valid ? config.channels.find((item) => item.id === authorization.channelId) : undefined;
-        if (!channel) return { ...config, channelMode: "local" as const, baseUrl: "", apiKey: "", channels: [], models: [], imageModel: "", videoModel: "", textModel: "", audioModel: "" };
-        return withModelChannels(config, [{ ...channel, models: channel.models.filter((model) => model.capability === "image" || model.capability === "video") }]);
-    }, [authorization.channelId, authorization.granted, authorization.valid, config, managed]);
+    return useMemo(() => effectiveConfig(config, managed, authorization), [authorization, config, managed]);
+}
+
+export function getEffectiveConfig() {
+    return effectiveConfig(useConfigStore.getState().config, isManagedSiteActive(), useManagedSiteStore.getState().authorization);
+}
+
+function effectiveConfig(config: AiConfig, managed: boolean, authorization: ReturnType<typeof useManagedSiteStore.getState>["authorization"]): AiConfig {
+    if (!managed) return { ...config, channelMode: "local" };
+    const channel = authorization.granted && authorization.valid ? config.channels.find((item) => item.id === authorization.channelId) : undefined;
+    if (!channel) return { ...config, channelMode: "local", baseUrl: "", apiKey: "", channels: [], models: [], imageModel: "", videoModel: "", textModel: "", audioModel: "" };
+    return withModelChannels(config, [channel]);
 }
 
 /** Normalize a mixed list of raw model names or model objects into deduped ChannelModel entries. */

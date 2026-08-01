@@ -1,16 +1,19 @@
 import { Button, Tooltip } from "antd";
-import { ArrowUpRight, CircleDollarSign, Menu, RefreshCw } from "lucide-react";
+import { ArrowUpRight, Bot, CircleDollarSign, Menu, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { managedNavigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
 import { requestManagedBalanceRefresh } from "@/lib/managed-site";
 import { cn } from "@/lib/utils";
 import { useConfigStore } from "@/stores/use-config-store";
+import { useAgentStore } from "@/stores/use-agent-store";
 import { useManagedSiteStore } from "@/stores/use-managed-site-store";
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 
 export function ManagedSiteHeader({ activeToolSlug, onOpenMobileNav }: { activeToolSlug?: NavigationToolSlug; onOpenMobileNav: () => void }) {
     const config = useConfigStore((state) => state.config);
+    const agentPanelOpen = useAgentStore((state) => state.panelOpen);
+    const toggleAgentPanel = useAgentStore((state) => state.togglePanel);
     const profile = useManagedSiteStore((state) => state.profile);
     const authorization = useManagedSiteStore((state) => state.authorization);
     const connectionStatus = useManagedSiteStore((state) => state.connectionStatus);
@@ -19,10 +22,12 @@ export function ManagedSiteHeader({ activeToolSlug, onOpenMobileNav }: { activeT
     const channel = config.channels.find((item) => item.id === authorization.channelId);
     const hasImage = Boolean(channel?.models.some((model) => model.capability === "image"));
     const hasVideo = Boolean(channel?.models.some((model) => model.capability === "video"));
-    const connection = managedConnectionDisplay(connectionStatus, connectionMessage, authorization.granted, authorization.valid, hasImage, hasVideo);
+    const hasCreativeModel = Boolean(channel?.models.length);
+    const connection = managedConnectionDisplay(connectionStatus, connectionMessage, authorization.granted, authorization.valid, hasImage, hasVideo, hasCreativeModel);
     const balanceText = balance.value ? balance.value.displayText : balance.status === "loading" ? "正在刷新" : "余额暂不可用";
     const lowBalance = Boolean(balance.value?.low);
-    const ready = Boolean(authorization.granted && authorization.valid && channel?.baseUrl.trim() && channel.apiKey.trim() && (hasImage || hasVideo));
+    const ready = Boolean(authorization.granted && authorization.valid && channel?.baseUrl.trim() && channel.apiKey.trim() && hasCreativeModel);
+    const homePath = hasImage ? "/image" : hasVideo ? "/video" : "/canvas";
 
     if (!ready) {
         return (
@@ -41,16 +46,16 @@ export function ManagedSiteHeader({ activeToolSlug, onOpenMobileNav }: { activeT
         <header className="sticky top-0 z-30 h-14 shrink-0 border-b border-stone-200/80 bg-background/95 backdrop-blur-xl dark:border-stone-800/80">
             <div className="mx-auto flex h-full max-w-[1480px] items-center justify-between gap-3 px-3 sm:px-5">
                 <div className="flex min-w-0 items-center">
-                    <Link to="/image" className="flex min-w-0 shrink-0 items-center gap-2.5">
+                    <Link to={homePath} className="flex min-w-0 shrink-0 items-center gap-2.5">
                         <img src={profile.logoUrl || "/logo.svg"} alt="" className="size-7 rounded-lg object-contain" />
                         <span className="hidden truncate text-[15px] font-semibold tracking-tight text-stone-950 sm:block dark:text-stone-100">{profile.siteName}</span>
                         <span className="hidden text-stone-300 sm:block dark:text-stone-700">·</span>
                         <span className="hidden truncate text-sm font-medium text-stone-600 sm:block dark:text-stone-300">AI 创作</span>
                     </Link>
-                    <button type="button" className="ml-2 inline-flex size-8 items-center justify-center text-stone-600 md:hidden dark:text-stone-300" onClick={onOpenMobileNav} aria-label="打开创作导航">
+                    <button type="button" className="ml-2 inline-flex size-8 items-center justify-center text-stone-600 xl:hidden dark:text-stone-300" onClick={onOpenMobileNav} aria-label="打开创作导航">
                         <Menu className="size-5" />
                     </button>
-                    <nav className="ml-8 hidden h-14 items-center gap-7 md:flex">
+                    <nav className="ml-8 hidden h-14 items-center gap-7 xl:flex">
                         {managedNavigationTools.map((tool) => {
                             const Icon = tool.icon;
                             const active = activeToolSlug === tool.slug;
@@ -72,6 +77,11 @@ export function ManagedSiteHeader({ activeToolSlug, onOpenMobileNav }: { activeT
                 </div>
 
                 <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2">
+                    <span className="hidden sm:inline-flex">
+                        <Tooltip title={agentPanelOpen ? "收起 Agent" : "打开 Agent"}>
+                            <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" icon={<Bot className="size-4" />} onClick={toggleAgentPanel} aria-label="打开 Agent" />
+                        </Tooltip>
+                    </span>
                     <Tooltip title={connection.detail}>
                         <div className={cn("hidden h-8 items-center gap-2 px-2 text-xs font-medium sm:flex", connection.tone)}>
                             <span className={cn("size-1.5 rounded-full", connection.dot)} />
@@ -109,13 +119,13 @@ export function ManagedSiteHeader({ activeToolSlug, onOpenMobileNav }: { activeT
     );
 }
 
-function managedConnectionDisplay(status: ReturnType<typeof useManagedSiteStore.getState>["connectionStatus"], message: string, granted: boolean, valid: boolean, hasImage: boolean, hasVideo: boolean) {
+function managedConnectionDisplay(status: ReturnType<typeof useManagedSiteStore.getState>["connectionStatus"], message: string, granted: boolean, valid: boolean, hasImage: boolean, hasVideo: boolean, hasCreativeModel: boolean) {
     if (status === "connecting") return { label: "正在连接", detail: message || "正在连接阿柴 AI", tone: "text-amber-600", dot: "bg-amber-500 animate-pulse" };
     if (status === "syncing") return { label: "正在同步", detail: message || "正在同步模型", tone: "text-amber-600", dot: "bg-amber-500 animate-pulse" };
     if (!granted) return { label: "待授权", detail: "请从阿柴 AI 控制台进入创作台", tone: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500" };
     if (!valid || status === "unauthorized") return { label: "授权已失效", detail: message || "请从阿柴 AI 控制台重新进入", tone: "text-red-600 dark:text-red-400", dot: "bg-red-500" };
     if (status === "error") return { label: "连接异常", detail: message || "服务暂时不可用", tone: "text-red-600 dark:text-red-400", dot: "bg-red-500" };
-    const availability = !hasImage && !hasVideo ? "无创作模型" : !hasImage ? "无生图模型" : !hasVideo ? "无视频模型" : "已连接";
+    const availability = !hasCreativeModel ? "无创作模型" : !hasImage && !hasVideo ? "画布模型可用" : !hasImage ? "无生图模型" : !hasVideo ? "无视频模型" : "已连接";
     const complete = hasImage && hasVideo;
     return {
         label: availability,

@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { Drawer } from "antd";
-import { ArrowUpRight, CreditCard, Settings2 } from "lucide-react";
+import { ArrowUpRight, Bot, CreditCard, Settings2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
 import { cn } from "@/lib/utils";
+import { useAgentStore } from "@/stores/use-agent-store";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useManagedSiteMode, useManagedSiteStore } from "@/stores/use-managed-site-store";
 
@@ -19,9 +20,10 @@ type MobileNavDrawerProps = {
 export function MobileNavDrawer({ open, activeToolSlug, tools = navigationTools, onClose }: MobileNavDrawerProps) {
     const managed = useManagedSiteMode();
     const profile = useManagedSiteStore((state) => state.profile);
+    const toggleAgentPanel = useAgentStore((state) => state.togglePanel);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     return (
-        <Drawer title={managed ? `${profile.siteName} · AI 创作` : "导航"} placement="left" size={280} open={open} onClose={onClose} className="md:hidden">
+        <Drawer title={managed ? `${profile.siteName} · AI 创作` : "导航"} placement="left" size={280} open={open} onClose={onClose} className={managed ? "xl:hidden" : "md:hidden"}>
             <div className="space-y-1">
                 {tools.map((tool) => {
                     const Icon = tool.icon;
@@ -43,6 +45,17 @@ export function MobileNavDrawer({ open, activeToolSlug, tools = navigationTools,
                 })}
                 {managed ? (
                     <div className="mt-4 space-y-1 border-t border-stone-200 pt-4 dark:border-stone-800">
+                        <button
+                            type="button"
+                            className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-base text-stone-600 transition hover:bg-stone-100 hover:text-stone-950 dark:text-stone-300 dark:hover:bg-stone-800 dark:hover:text-stone-100"
+                            onClick={() => {
+                                toggleAgentPanel();
+                                onClose();
+                            }}
+                        >
+                            <Bot className="size-5" />
+                            <span>Agent</span>
+                        </button>
                         <button
                             type="button"
                             className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-base text-stone-600 transition hover:bg-stone-100 hover:text-stone-950 dark:text-stone-300 dark:hover:bg-stone-800 dark:hover:text-stone-100"

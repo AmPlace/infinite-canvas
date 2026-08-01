@@ -11,12 +11,13 @@ import { useEffect, useRef, useState } from "react";
 import { useAgentStore } from "@/stores/use-agent-store";
 import { ManagedSiteHeader } from "@/components/layout/managed-site-header";
 import { managedNavigationTools } from "@/constant/navigation-tools";
-import { useManagedSiteMode } from "@/stores/use-managed-site-store";
+import { useManagedSiteMode, useManagedSiteStore } from "@/stores/use-managed-site-store";
 
 export function AppTopNav() {
     const { pathname } = useLocation();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
     const managed = useManagedSiteMode();
+    const authorization = useManagedSiteStore((state) => state.authorization);
     const autoConnectRef = useRef(false);
     const agentToken = useAgentStore((state) => state.token);
     const agentEnabled = useAgentStore((state) => state.enabled);
@@ -29,10 +30,10 @@ export function AppTopNav() {
     const activeToolSlug = navigationTools.some((tool) => tool.slug === slug) ? (slug as NavigationToolSlug) : undefined;
 
     useEffect(() => {
-        if (managed || autoConnectRef.current || agentEnabled || agentConnected || !agentToken.trim()) return;
+        if ((managed && (!authorization.granted || !authorization.valid)) || autoConnectRef.current || agentEnabled || agentConnected || !agentToken.trim()) return;
         autoConnectRef.current = true;
         connectAgent({ silent: true });
-    }, [agentConnected, agentEnabled, agentToken, connectAgent, managed]);
+    }, [agentConnected, agentEnabled, agentToken, authorization.granted, authorization.valid, connectAgent, managed]);
 
     return (
         <>

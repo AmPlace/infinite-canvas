@@ -33,7 +33,7 @@ export function UserStatusActions({ showConfig = true, showTheme = true, variant
 
     return (
         <div className="inline-flex shrink-0 items-center gap-1">
-            {!managed && onOpenPlugins ? (
+            {onOpenPlugins ? (
                 <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenPlugins} aria-label="节点插件" title="节点插件">
                     <Puzzle className="size-4" />
                 </button>
