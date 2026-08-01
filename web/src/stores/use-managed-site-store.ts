@@ -31,6 +31,7 @@ type ManagedSiteStore = {
     disableManagedMode: () => void;
     updateProfile: (profile: Partial<ManagedSiteProfile>) => void;
     grantAuthorization: (channelId: string) => void;
+    clearAuthorization: () => void;
     markAuthorizationValid: (valid: boolean) => void;
     setConnection: (status: ManagedConnectionStatus, message?: string) => void;
     setBalance: (balance: ManagedBalanceState) => void;
@@ -59,6 +60,7 @@ export const useManagedSiteStore = create<ManagedSiteStore>()(
                     authorization: { granted: true, valid: true, channelId, authorizedAt: Date.now() },
                     balance: defaultBalance,
                 }),
+            clearAuthorization: () => set({ authorization: defaultAuthorization, connectionStatus: "idle", connectionMessage: "", balance: defaultBalance, pricingQuote: undefined }),
             markAuthorizationValid: (valid) => set((state) => ({ authorization: { ...state.authorization, valid } })),
             setConnection: (connectionStatus, connectionMessage = "") => set({ connectionStatus, connectionMessage }),
             setBalance: (balance) => set({ balance }),

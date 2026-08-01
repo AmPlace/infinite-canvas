@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { App } from "antd";
 
 import { classifyManagedFailure, managedFailureMessage, MANAGED_BALANCE_REFRESH_EVENT, shouldInvalidateManagedAuthorization, type ManagedBalanceRefreshReason } from "@/lib/managed-site";
+import { fetchChannelModels } from "@/services/api/image";
 import { fetchManagedBalance, ManagedSiteRequestError } from "@/services/api/managed-site";
-import { useConfigStore } from "@/stores/use-config-store";
+import { syncChannelModelNames, useConfigStore, withModelChannels } from "@/stores/use-config-store";
 import { useManagedSiteMode, useManagedSiteStore } from "@/stores/use-managed-site-store";
 
 const FOCUS_REFRESH_INTERVAL = 30_000;
 const GENERATION_REFRESH_DELAY = 1_500;
 
 export function ManagedSiteRuntime() {
+    const { message } = App.useApp();
     const managed = useManagedSiteMode();
     const config = useConfigStore((state) => state.config);
     const authorization = useManagedSiteStore((state) => state.authorization);
@@ -20,9 +23,42 @@ export function ManagedSiteRuntime() {
     const requestRef = useRef<Promise<void> | null>(null);
     const queuedReasonRef = useRef<ManagedBalanceRefreshReason | null>(null);
     const initialKeyRef = useRef("");
+    const modelSyncKeyRef = useRef("");
     const generationTimerRef = useRef<number | undefined>(undefined);
     const lastFetchedAtRef = useRef(0);
     const channel = useMemo(() => config.channels.find((item) => item.id === authorization.channelId), [authorization.channelId, config.channels]);
+
+    useEffect(() => {
+        if (!managed || !authorization.granted || !authorization.valid || !channel?.baseUrl.trim() || !channel.apiKey.trim()) return;
+        const syncKey = `${channel.id}:${channel.baseUrl}:${channel.apiKey}`;
+        if (modelSyncKeyRef.current === syncKey) return;
+        modelSyncKeyRef.current = syncKey;
+        const requestedChannel = channel;
+        setConnection("syncing", "正在同步当前 Key 的可用模型");
+        message.loading({ key: "api-import", content: "正在同步当前 Key 的可用模型…", duration: 0 });
+        void fetchChannelModels(requestedChannel)
+            .then((names) => {
+                const latestConfig = useConfigStore.getState().config;
+                const currentChannel = latestConfig.channels.find((item) => item.id === requestedChannel.id);
+                if (!currentChannel || currentChannel.baseUrl !== requestedChannel.baseUrl || currentChannel.apiKey !== requestedChannel.apiKey || currentChannel.apiFormat !== requestedChannel.apiFormat) return;
+                const syncedChannel = syncChannelModelNames(currentChannel, names);
+                const syncedChannels = latestConfig.channels.map((item) => (item.id === syncedChannel.id ? syncedChannel : item));
+                useConfigStore.getState().setConfig(withModelChannels(latestConfig, syncedChannels));
+                if (!syncedChannel.models.length) throw new Error("当前 Key 未返回可用模型");
+                const hasImage = syncedChannel.models.some((model) => model.capability === "image");
+                const hasVideo = syncedChannel.models.some((model) => model.capability === "video");
+                const statusMessage = !hasImage && !hasVideo ? "已连接，当前 Key 仅提供画布模型" : !hasImage ? "已连接，当前 Key 无生图模型" : !hasVideo ? "已连接，当前 Key 无视频模型" : "已连接";
+                setConnection("connected", statusMessage);
+                message.success({ key: "api-import", content: `已同步 ${syncedChannel.models.length} 个可用模型` });
+            })
+            .catch((error) => {
+                const kind = classifyManagedFailure({ message: error instanceof Error ? error.message : "" });
+                if (shouldInvalidateManagedAuthorization("model_sync", kind)) markAuthorizationValid(false);
+                const friendlyMessage = kind === "unauthorized" ? managedFailureMessage(kind) : "模型同步失败，请从阿柴 AI 控制台重新进入";
+                setConnection(kind === "unauthorized" ? "unauthorized" : "error", friendlyMessage);
+                message.error({ key: "api-import", content: friendlyMessage, duration: 6 });
+            });
+    }, [authorization.granted, authorization.valid, channel, managed, markAuthorizationValid, message, setConnection]);
 
     const refreshBalance = useCallback(
         (reason: ManagedBalanceRefreshReason) => {

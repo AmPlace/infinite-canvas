@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import { Drawer } from "antd";
-import { ArrowUpRight, Bot, CreditCard, Settings2 } from "lucide-react";
+import { Bot, CreditCard, KeyRound, Settings2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
+import { useClearManagedAuthorization } from "@/hooks/use-clear-managed-authorization";
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/stores/use-agent-store";
@@ -20,6 +21,7 @@ type MobileNavDrawerProps = {
 export function MobileNavDrawer({ open, activeToolSlug, tools = navigationTools, onClose }: MobileNavDrawerProps) {
     const managed = useManagedSiteMode();
     const profile = useManagedSiteStore((state) => state.profile);
+    const clearAuthorization = useClearManagedAuthorization();
     const toggleAgentPanel = useAgentStore((state) => state.togglePanel);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     return (
@@ -68,7 +70,7 @@ export function MobileNavDrawer({ open, activeToolSlug, tools = navigationTools,
                             <span>创作偏好</span>
                         </button>
                         {profile.rechargeUrl ? <ManagedMobileLink href={profile.rechargeUrl} icon={<CreditCard className="size-5" />} label="充值" /> : null}
-                        {profile.consoleUrl ? <ManagedMobileLink href={profile.consoleUrl} icon={<ArrowUpRight className="size-5" />} label="返回控制台" /> : null}
+                        {profile.consoleUrl ? <ManagedMobileLink href={profile.consoleUrl} icon={<KeyRound className="size-5" />} label="切换 API Key" onClick={clearAuthorization} /> : null}
                         <div className="px-2 pt-2">
                             <UserStatusActions showConfig={false} />
                         </div>
@@ -79,9 +81,9 @@ export function MobileNavDrawer({ open, activeToolSlug, tools = navigationTools,
     );
 }
 
-function ManagedMobileLink({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
+function ManagedMobileLink({ href, icon, label, onClick }: { href: string; icon: ReactNode; label: string; onClick?: () => void }) {
     return (
-        <a href={href} className="flex items-center gap-3 rounded-lg px-3 py-3 text-base text-stone-600 transition hover:bg-stone-100 hover:text-stone-950 dark:text-stone-300 dark:hover:bg-stone-800 dark:hover:text-stone-100">
+        <a href={href} onClick={onClick} className="flex items-center gap-3 rounded-lg px-3 py-3 text-base text-stone-600 transition hover:bg-stone-100 hover:text-stone-950 dark:text-stone-300 dark:hover:bg-stone-800 dark:hover:text-stone-100">
             {icon}
             <span>{label}</span>
         </a>

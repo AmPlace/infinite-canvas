@@ -4,7 +4,7 @@ import { App } from "antd";
 
 import { usePromptSourceScheduler } from "@/hooks/use-prompt-source-scheduler";
 import { defaultManagedSiteProfile, IS_MANAGED_DEPLOYMENT } from "@/constant/site-mode";
-import { classifyManagedFailure, managedFailureMessage, MANAGED_SITE_PARAM_KEYS, normalizeManagedCredentials, readManagedSiteImport, shouldInvalidateManagedAuthorization } from "@/lib/managed-site";
+import { MANAGED_SITE_PARAM_KEYS, normalizeManagedCredentials, readManagedSiteImport } from "@/lib/managed-site";
 import { fetchChannelModels } from "@/services/api/image";
 import { createModelChannel, syncChannelModelNames, useConfigStore, withModelChannels } from "@/stores/use-config-store";
 import { useManagedSiteStore } from "@/stores/use-managed-site-store";
@@ -77,45 +77,25 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
             message.loading({ key: "api-import", content: "API 配置已导入，正在同步可用模型…", duration: 0 });
         }
 
+        if (managed) return;
+
         void fetchChannelModels(importedChannel)
             .then((names) => {
                 if (!names.length) throw new Error("当前 Key 未返回可用模型");
                 const latestConfig = useConfigStore.getState().config;
                 const currentChannel = latestConfig.channels.find((channel) => channel.id === importedChannel.id);
                 if (!currentChannel || currentChannel.baseUrl !== importedChannel.baseUrl || currentChannel.apiKey !== importedChannel.apiKey || currentChannel.apiFormat !== importedChannel.apiFormat) {
-                    if (managed) {
-                        const content = "授权信息已发生变化，请从阿柴 AI 控制台重新进入创作台";
-                        useManagedSiteStore.getState().setConnection("error", content);
-                        message.warning({ key: "api-import", content });
-                    } else {
-                        message.info({ key: "api-import", content: "渠道配置已发生变化，已取消应用本次模型同步结果" });
-                    }
+                    message.info({ key: "api-import", content: "渠道配置已发生变化，已取消应用本次模型同步结果" });
                     return;
                 }
-                const syncedChannel = syncChannelModelNames(managed ? { ...currentChannel, models: importedChannel.models } : currentChannel, names);
+                const syncedChannel = syncChannelModelNames(currentChannel, names);
                 const syncedChannels = latestConfig.channels.map((channel) => (channel.id === syncedChannel.id ? syncedChannel : channel));
                 useConfigStore.getState().setConfig(withModelChannels(latestConfig, syncedChannels));
-                if (managed) {
-                    const hasImage = syncedChannel.models.some((model) => model.capability === "image");
-                    const hasVideo = syncedChannel.models.some((model) => model.capability === "video");
-                    const statusMessage = !hasImage && !hasVideo ? "当前 Key 无生图或视频模型" : !hasImage ? "已连接，当前 Key 无生图模型" : !hasVideo ? "已连接，当前 Key 无视频模型" : "已连接";
-                    useManagedSiteStore.getState().setConnection(hasImage || hasVideo ? "connected" : "error", statusMessage);
-                    message[hasImage || hasVideo ? "success" : "warning"]({ key: "api-import", content: statusMessage });
-                } else {
-                    message.success({ key: "api-import", content: `API 配置已导入，已同步 ${syncedChannel.models.length} 个模型` });
-                }
+                message.success({ key: "api-import", content: `API 配置已导入，已同步 ${syncedChannel.models.length} 个模型` });
             })
             .catch((error) => {
                 const reason = error instanceof Error ? error.message : "未知错误";
-                if (managed) {
-                    const kind = classifyManagedFailure({ message: reason });
-                    if (shouldInvalidateManagedAuthorization("model_sync", kind)) useManagedSiteStore.getState().markAuthorizationValid(false);
-                    const friendlyMessage = kind === "unauthorized" ? managedFailureMessage(kind) : "模型同步失败，请稍后从阿柴 AI 控制台重新进入";
-                    useManagedSiteStore.getState().setConnection(kind === "unauthorized" ? "unauthorized" : "error", friendlyMessage);
-                    message.error({ key: "api-import", content: friendlyMessage, duration: 6 });
-                } else {
-                    message.error({ key: "api-import", content: `API 配置已保留，但自动同步模型失败：${reason}。可在配置中手动拉取。`, duration: 6 });
-                }
+                message.error({ key: "api-import", content: `API 配置已保留，但自动同步模型失败：${reason}。可在配置中手动拉取。`, duration: 6 });
             });
     }, [config, message, setConfig, setConfigDialogOpen]);
 

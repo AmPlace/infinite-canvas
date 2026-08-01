@@ -3,6 +3,7 @@ import { Button, Spin } from "antd";
 import { ArrowUpRight, ShieldCheck } from "lucide-react";
 import { Navigate, useLocation } from "react-router-dom";
 
+import { useClearManagedAuthorization } from "@/hooks/use-clear-managed-authorization";
 import { isManagedCreativePath } from "@/lib/managed-site";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useManagedSiteMode, useManagedSiteStore } from "@/stores/use-managed-site-store";
@@ -15,19 +16,21 @@ export function ManagedSiteGate({ children }: { children: ReactNode }) {
     const authorization = useManagedSiteStore((state) => state.authorization);
     const connectionStatus = useManagedSiteStore((state) => state.connectionStatus);
     const connectionMessage = useManagedSiteStore((state) => state.connectionMessage);
+    const clearAuthorization = useClearManagedAuthorization();
     if (!managed) return <>{children}</>;
 
     const channel = config.channels.find((item) => item.id === authorization.channelId);
     const hasImage = Boolean(channel?.models.some((model) => model.capability === "image"));
     const hasVideo = Boolean(channel?.models.some((model) => model.capability === "video"));
     const hasCreativeModel = Boolean(channel?.models.length);
-    const ready = Boolean(authorization.granted && authorization.valid && channel?.baseUrl.trim() && channel.apiKey.trim() && hasCreativeModel);
+    const hasCredentials = Boolean(channel?.baseUrl.trim() && channel.apiKey.trim());
+    const ready = Boolean(authorization.granted && authorization.valid && connectionStatus === "connected" && hasCredentials && hasCreativeModel);
     const defaultPath = hasImage ? "/image" : hasVideo ? "/video" : "/canvas";
     if (ready && pathname === "/") return <Navigate to={defaultPath} replace />;
     if (ready && !isManagedCreativePath(pathname)) return <Navigate to={defaultPath} replace />;
     if (ready) return <>{children}</>;
 
-    const pending = connectionStatus === "connecting" || connectionStatus === "syncing";
+    const pending = Boolean(authorization.granted && authorization.valid && hasCredentials && (connectionStatus === "idle" || connectionStatus === "connecting" || connectionStatus === "syncing"));
     const missingModels = Boolean(authorization.granted && authorization.valid && channel && !hasCreativeModel);
     const title = pending
         ? connectionStatus === "syncing"
@@ -52,7 +55,7 @@ export function ManagedSiteGate({ children }: { children: ReactNode }) {
                 <h1 className="text-balance text-2xl font-semibold tracking-tight text-stone-950 dark:text-stone-100">{title}</h1>
                 <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-stone-500 dark:text-stone-400">{description}</p>
                 {!pending && profile.consoleUrl ? (
-                    <Button type="primary" size="large" href={profile.consoleUrl} className="mt-7 !rounded-xl !px-5" icon={<ArrowUpRight className="size-4" />}>
+                    <Button type="primary" size="large" href={profile.consoleUrl} onClick={clearAuthorization} className="mt-7 !rounded-xl !px-5" icon={<ArrowUpRight className="size-4" />}>
                         返回控制台
                     </Button>
                 ) : null}

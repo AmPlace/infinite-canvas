@@ -1,8 +1,9 @@
 import { Button, Tooltip } from "antd";
-import { ArrowUpRight, Bot, CircleDollarSign, Menu, RefreshCw } from "lucide-react";
+import { Bot, CircleDollarSign, KeyRound, Menu, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { managedNavigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
+import { useClearManagedAuthorization } from "@/hooks/use-clear-managed-authorization";
 import { requestManagedBalanceRefresh } from "@/lib/managed-site";
 import { cn } from "@/lib/utils";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -19,6 +20,7 @@ export function ManagedSiteHeader({ activeToolSlug, onOpenMobileNav }: { activeT
     const connectionStatus = useManagedSiteStore((state) => state.connectionStatus);
     const connectionMessage = useManagedSiteStore((state) => state.connectionMessage);
     const balance = useManagedSiteStore((state) => state.balance);
+    const clearAuthorization = useClearManagedAuthorization();
     const channel = config.channels.find((item) => item.id === authorization.channelId);
     const hasImage = Boolean(channel?.models.some((model) => model.capability === "image"));
     const hasVideo = Boolean(channel?.models.some((model) => model.capability === "video"));
@@ -26,7 +28,7 @@ export function ManagedSiteHeader({ activeToolSlug, onOpenMobileNav }: { activeT
     const connection = managedConnectionDisplay(connectionStatus, connectionMessage, authorization.granted, authorization.valid, hasImage, hasVideo, hasCreativeModel);
     const balanceText = balance.value ? balance.value.displayText : balance.status === "loading" ? "正在刷新" : "余额暂不可用";
     const lowBalance = Boolean(balance.value?.low);
-    const ready = Boolean(authorization.granted && authorization.valid && channel?.baseUrl.trim() && channel.apiKey.trim() && hasCreativeModel);
+    const ready = Boolean(authorization.granted && authorization.valid && connectionStatus === "connected" && channel?.baseUrl.trim() && channel.apiKey.trim() && hasCreativeModel);
     const homePath = hasImage ? "/image" : hasVideo ? "/video" : "/canvas";
 
     if (!ready) {
@@ -105,8 +107,8 @@ export function ManagedSiteHeader({ activeToolSlug, onOpenMobileNav }: { activeT
                     ) : null}
                     {profile.consoleUrl ? (
                         <span className="hidden sm:inline-flex">
-                            <Button size="small" type="text" href={profile.consoleUrl} className="!h-8 !rounded-lg !px-2 lg:!px-2.5" icon={<ArrowUpRight className="size-3.5" />} aria-label="返回控制台">
-                                <span className="hidden lg:inline">返回控制台</span>
+                            <Button size="small" type="text" href={profile.consoleUrl} onClick={clearAuthorization} className="!h-8 !rounded-lg !px-2 lg:!px-2.5" icon={<KeyRound className="size-3.5" />} aria-label="切换 API Key">
+                                <span className="hidden lg:inline">切换 Key</span>
                             </Button>
                         </span>
                     ) : null}
